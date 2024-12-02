@@ -163,3 +163,4 @@ cython_debug/
 
 # Results folder
 results/
+checkpoint/
