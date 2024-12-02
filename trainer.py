@@ -91,7 +91,6 @@ class Trainer:
         self.clip_fraction_list = []
 
         self.episode_length = []
-        self.episode_reward = []
 
 
     def sample(self) -> Dict[str, torch.Tensor]:
@@ -106,7 +105,7 @@ class Trainer:
         """
 
         rewards = np.zeros((self.N, self.T), dtype=np.float32)
-        actions = np.zeros((self.N, self.T), dtype=np.int32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.int32)
+        actions = np.zeros((self.N, self.T), dtype=np.int32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
         done = np.zeros((self.N, self.T), dtype=bool)
         obs = np.zeros((self.N, self.T, self.state_size), dtype=np.float32)
         log_pis = np.zeros((self.N, self.T), dtype=np.float32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
@@ -139,10 +138,8 @@ class Trainer:
                     self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
                     if done[w, t] and not done[w, t - 1]:
                         self.episode_length.append(t)
-                        self.episode_reward.append(rewards[w, :t].sum())
                     elif t == self.T - 1 and not done[w, t]:
                         self.episode_length.append(self.T)
-                        self.episode_reward.append(rewards[w].sum())
 
             # Get value of after the final step
             _, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
@@ -242,9 +239,7 @@ class Trainer:
         """
 
         # R_t returns sampled from pi_{theta_{OLD}}
-        sampled_return = samples['values'] + samples['advantages'][:, 0]
-
-
+        sampled_return = samples['values'] + samples['advantages']
         sampled_normalized_advantage = self._normalize(samples['advantages'])
 
         # Sampled observations are fed into the model to get pi_theta(a_t|s_t) and V^{pi_theta}(s_t); we are treating observations as state
@@ -254,7 +249,10 @@ class Trainer:
         log_pi = pi.log_prob(samples['actions'])
 
         # Calculate policy loss
-        policy_loss, clipped_fraction = self.ppo_loss(log_pi, samples['log_pis'], sampled_normalized_advantage, self.clip_range)
+        if self.str_env == 'CartPole-v1':
+            policy_loss, clipped_fraction = self.ppo_loss(log_pi, samples['log_pis'], sampled_normalized_advantage, self.clip_range)
+        else:
+            policy_loss, clipped_fraction = self.ppo_loss(log_pi, samples['log_pis'], sampled_normalized_advantage.unsqueeze(1), self.clip_range)
 
         # Calculate Entropy Bonus
         entropy_bonus = pi.entropy()
@@ -336,44 +334,42 @@ class Trainer:
         plt.tight_layout()
         plt.savefig("results/training_metrics.png")
 
-        _, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].plot(self.episode_length)
-        axs[0].set_title("Episode Length")
-        axs[0].set_xlabel("Episodes")
-        axs[0].set_ylabel("Length")
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.episode_length)
+        plt.title("Episode Length")
+        plt.xlabel("Episodes")
+        plt.ylabel("Length")
 
-        axs[1].plot(self.episode_reward)
-        axs[1].set_title("Episode Reward")
-        axs[1].set_xlabel("Episodes")
-        axs[1].set_ylabel("Reward")
-
-        plt.tight_layout()
         plt.savefig("results/training_episodes.png")
 
     
-    def log_video(self):
+    def log_video(self, filename: str):
         """
         This method logs a video of the trained model's performance in the environment.
         """
 
         env = gym.make(self.str_env, render_mode="rgb_array")
 
-        video_file ="results/learned_dynamics.mp4"
+        video_file ="results/" + filename + ".mp4"
         video_recorder = VideoRecorder(env, video_file, enabled=True)
 
         obs, _ = env.reset()
+        duration = 0
         done = False
-        state = torch.tensor(obs, dtype=torch.float32, device=self.device)
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
         while not done:
+            duration += 1
             video_recorder.capture_frame()
             # Sample an action
             with torch.no_grad():
-                pi, _ = self.model(state)
+                pi, _ = self.model(obs)
                 action = pi.sample()
             # Step the environment
-            obs, _, terminated, truncated, _ = env.step(action.squeeze(0).cpu().numpy())
+            obs, _, terminated, truncated, _ = env.step(action.cpu().numpy())
             done = terminated or truncated
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
 
+        print(f"Video recorded with duration {duration} frames.")
         video_recorder.capture_frame()
         video_recorder.close()
         video_recorder.enabled = False

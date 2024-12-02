@@ -18,11 +18,11 @@ class ClippedPPOLoss(nn.Module):
 
         Parameters:
         -----------
-        log_pi : torch.Tensor, shape=[batch_size]
+        log_pi : torch.Tensor, shape=[batch_size, action_size]
             The log probabilities of the actions taken under the current policy.
-        sampled_log_pi : torch.Tensor, shape=[batch_size]
+        sampled_log_pi : torch.Tensor, shape=[batch_size, action_size]
             The log probabilities of the actions taken under the old policy (used to collect the data).
-        advantage : torch.Tensor, shape=[batch_size]
+        advantage : torch.Tensor, shape=[batch_size, 1]
             The advantage estimates, which measure the relative benefit of taking a particular action compared to the average action.
         clip : float
             The clipping parameter, which defines the range within which the ratio of the new policy to the old policy is clipped.
