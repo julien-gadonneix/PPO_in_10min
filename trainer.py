@@ -8,7 +8,8 @@ from losses import ClippedPPOLoss, ClippedValueFunctionLoss
 from worker import Worker
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
+import gymnasium as gym
+from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 class Trainer:
     """
@@ -62,7 +63,10 @@ class Trainer:
         self.workers = [Worker(47+i) for i in range(self.N)]
 
         # Initialize tensors for observations
-        self.state_size = 4
+        # self.action_size = 2 # for CartPole
+        self.action_size = 17 # for Humanoid
+        # self.state_size = 4 # for CartPole
+        self.state_size = 348 # for Humanoid
         self.obs = np.zeros((self.N, self.state_size), dtype=np.float32)
         for worker in self.workers:
             worker.child.send(("reset", None))
@@ -74,7 +78,7 @@ class Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=2.5e-4)
         gamma = 0.99
         lambda_ = 0.95
-        self.gae = GAE(self.N, self.T, gamma, lambda_)
+        self.gae = GAE(self.N, self.T, gamma, lambda_, self.action_size)
         self.ppo_loss = ClippedPPOLoss()
         self.value_loss = ClippedValueFunctionLoss()
 
@@ -101,13 +105,15 @@ class Trainer:
         """
 
         rewards = np.zeros((self.N, self.T), dtype=np.float32)
-        actions = np.zeros((self.N, self.T), dtype=np.int32)
+        # actions = np.zeros((self.N, self.T), dtype=np.int32) # for CartPole
+        actions = np.zeros((self.N, self.T, self.action_size), dtype=np.int32) # for Humanoid
         done = np.zeros((self.N, self.T), dtype=bool)
         obs = np.zeros((self.N, self.T, self.state_size), dtype=np.float32)
-        log_pis = np.zeros((self.N, self.T), dtype=np.float32)
+        # log_pis = np.zeros((self.N, self.T), dtype=np.float32) # for CartPole
+        log_pis = np.zeros((self.N, self.T, self.action_size), dtype=np.float32) # for Humanoid
         values = np.zeros((self.N, self.T + 1), dtype=np.float32)
 
-        # Reset workers
+        # Reset workers; sometimes needed TODO
         for worker in self.workers:
             worker.child.send(("reset", None))
         for i, worker in enumerate(self.workers):
@@ -237,7 +243,9 @@ class Trainer:
         """
 
         # R_t returns sampled from pi_{theta_{OLD}}
-        sampled_return = samples['values'] + samples['advantages']
+        # sampled_return = samples['values'] + samples['advantages'] # for CartPole
+        sampled_return = samples['values'] + samples['advantages'][:, 0] # for Humanoid
+
 
         sampled_normalized_advantage = self._normalize(samples['advantages'])
 
@@ -343,3 +351,33 @@ class Trainer:
 
         plt.tight_layout()
         plt.savefig("results/training_episodes.png")
+
+    
+    def log_video(self):
+        """
+        This method logs a video of the trained model's performance in the environment.
+        """
+
+        # env = gym.make("CartPole-v1", render_mode="rgb_array") # for CartPole
+        env = gym.make("Humanoid-v5", render_mode="rgb_array") # for Humanoid
+
+        video_file ="results/learned_dynamics.mp4"
+        video_recorder = VideoRecorder(env, video_file, enabled=True)
+
+        obs, _ = env.reset()
+        done = False
+        state = torch.tensor(obs, dtype=torch.float32, device=self.device)
+        while not done:
+            video_recorder.capture_frame()
+            # Sample an action
+            with torch.no_grad():
+                pi, _ = self.model(state)
+                action = pi.sample()
+            # Step the environment
+            obs, _, terminated, truncated, _ = env.step(action.squeeze(0).cpu().numpy())
+            done = terminated or truncated
+
+        video_recorder.capture_frame()
+        video_recorder.close()
+        video_recorder.enabled = False
+        env.close()

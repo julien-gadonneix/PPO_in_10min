@@ -19,8 +19,9 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
     close : Closes the connection and terminates the worker process.
     """
 
-    # Create game
-    env = gym.make("CartPole-v1", render_mode="rgb_array")
+    # Create environment
+    # env = gym.make("CartPole-v1", render_mode="rgb_array") # for CartPole
+    env = gym.make("Humanoid-v5", render_mode="rgb_array") # for Humanoid
 
     # Wait for instructions from the connection and execute them
     while True:
