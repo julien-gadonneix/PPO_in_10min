@@ -11,8 +11,6 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
     -----------
     remote : multiprocessing.connection.Connection
         The connection object used for communication between the parent and child processes.
-    seed : int
-        The seed value for random number generation, ensuring reproducibility in the child process.
 
     Commands:
     ---------
@@ -22,7 +20,7 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
     """
 
     # Create game
-    env = env = gym.make("CartPole-v1", render_mode="rgb_array")
+    env = gym.make("CartPole-v1", render_mode="rgb_array")
 
     # Wait for instructions from the connection and execute them
     while True:
@@ -30,7 +28,7 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
         if cmd == "step":
             remote.send(env.step(data))
         elif cmd == "reset":
-            remote.send(env.reset())
+            remote.send(env.reset(seed=seed))
         elif cmd == "close":
             remote.close()
             break
@@ -42,14 +40,9 @@ class Worker:
     """
     The Worker class manages a separate process for performing tasks.
     It utilizes multiprocessing to create a child process that communicates with the parent process through a pipe.
-
-    Parameters:
-    -----------
-    seed : int
-        The seed value for random number generation, ensuring reproducibility in the child process.
     """
 
-    def __init__(self, seed):
+    def __init__(self, seed: int):
         self.child, parent = multiprocessing.Pipe()
         self.process = multiprocessing.Process(target=worker_process, args=(parent, seed))
         self.process.start()

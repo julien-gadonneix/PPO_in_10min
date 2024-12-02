@@ -7,6 +7,7 @@ from GAE import GAE
 from losses import ClippedPPOLoss, ClippedValueFunctionLoss
 from worker import Worker
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 class Trainer:
@@ -58,11 +59,11 @@ class Trainer:
         self.learning_rate = learning_rate
 
         # Create workers
-        self.workers = [Worker(47 + i) for i in range(self.N)]
+        self.workers = [Worker(47+i) for i in range(self.N)]
 
         # Initialize tensors for observations
         self.state_size = 4
-        self.obs = np.zeros((self.N, self.state_size), dtype=np.uint8)
+        self.obs = np.zeros((self.N, self.state_size), dtype=np.float32)
         for worker in self.workers:
             worker.child.send(("reset", None))
         for i, worker in enumerate(self.workers):
@@ -74,8 +75,18 @@ class Trainer:
         gamma = 0.99
         lambda_ = 0.95
         self.gae = GAE(self.N, self.T, gamma, lambda_)
-        self.ppo_loss = ClippedPPOLoss
-        self.value_loss = ClippedValueFunctionLoss
+        self.ppo_loss = ClippedPPOLoss()
+        self.value_loss = ClippedValueFunctionLoss()
+
+        # Monitoring
+        self.policy_loss_list = []
+        self.value_loss_list = []
+        self.entropy_bonus_list = []
+        self.kl_divergence_list = []
+        self.clip_fraction_list = []
+
+        self.episode_length = []
+        self.episode_reward = []
 
 
     def sample(self) -> Dict[str, torch.Tensor]:
@@ -91,10 +102,16 @@ class Trainer:
 
         rewards = np.zeros((self.N, self.T), dtype=np.float32)
         actions = np.zeros((self.N, self.T), dtype=np.int32)
-        done = np.zeros((self.N, self.T), dtype=np.bool)
-        obs = np.zeros((self.N, self.T, self.state_size), dtype=np.uint8)
+        done = np.zeros((self.N, self.T), dtype=bool)
+        obs = np.zeros((self.N, self.T, self.state_size), dtype=np.float32)
         log_pis = np.zeros((self.N, self.T), dtype=np.float32)
         values = np.zeros((self.N, self.T + 1), dtype=np.float32)
+
+        # Reset workers
+        for worker in self.workers:
+            worker.child.send(("reset", None))
+        for i, worker in enumerate(self.workers):
+            self.obs[i] = worker.child.recv()[0]
 
         with torch.no_grad():
             # Sample T from each worker
@@ -110,17 +127,17 @@ class Trainer:
 
                 # Run sampled actions on each worker
                 for w, worker in enumerate(self.workers):
-                    if t > 0 and done[w, t - 1]:
-                        done[w, t] = True
-                        continue
                     worker.child.send(("step", actions[w, t]))
 
                 for w, worker in enumerate(self.workers):
-                    if t > 0 and done[w, t - 1]:
-                        done[w, t] = True
-                        continue
                     # Get results after executing the actions
                     self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
+                    if done[w, t] and not done[w, t - 1]:
+                        self.episode_length.append(t)
+                        self.episode_reward.append(rewards[w, :t].sum())
+                    elif t == self.T - 1 and not done[w, t]:
+                        self.episode_length.append(self.T)
+                        self.episode_reward.append(rewards[w].sum())
 
             # Get value of after the final step
             _, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
@@ -175,7 +192,7 @@ class Trainer:
 
                 loss = self._calc_loss(mini_batch)
                 for pg in self.optimizer.param_groups:
-                    pg['lr'] = self.learning_rate()
+                    pg['lr'] = self.learning_rate
                 self.optimizer.zero_grad()
                 loss.backward()
                 # Clip gradients
@@ -231,27 +248,27 @@ class Trainer:
         log_pi = pi.log_prob(samples['actions'])
 
         # Calculate policy loss
-        policy_loss = self.ppo_loss(log_pi, samples['log_pis'], sampled_normalized_advantage, self.clip_range())
+        policy_loss, clipped_fraction = self.ppo_loss(log_pi, samples['log_pis'], sampled_normalized_advantage, self.clip_range)
 
         # Calculate Entropy Bonus
         entropy_bonus = pi.entropy()
         entropy_bonus = entropy_bonus.mean()
 
         # Calculate value function loss
-        value_loss = self.value_loss(value, samples['values'], sampled_return, self.clip_range())
+        value_loss = self.value_loss(value, samples['values'], sampled_return, self.clip_range)
 
         loss = (policy_loss
-                + self.value_loss_coef() * value_loss
-                - self.entropy_bonus_coef() * entropy_bonus)
+                + self.value_loss_coef * value_loss
+                - self.entropy_bonus_coef * entropy_bonus)
 
         # For monitoring
         approx_kl_divergence = .5 * ((samples['log_pis'] - log_pi) ** 2).mean()
 
-        print("Policy Reward: ", -policy_loss)
-        print("Value Loss: ", value_loss)
-        print("Entropy Bonus: ", entropy_bonus)
-        print("KL Divergence: ", approx_kl_divergence)
-        print("Clip Fraction: ", self.ppo_loss.clip_fraction)
+        self.policy_loss_list.append(-policy_loss.item())
+        self.value_loss_list.append(value_loss.item())
+        self.entropy_bonus_list.append(entropy_bonus.item())
+        self.kl_divergence_list.append(approx_kl_divergence.item())
+        self.clip_fraction_list.append(clipped_fraction.item())
 
         return loss
     
@@ -262,7 +279,7 @@ class Trainer:
         The training loop continues for a specified number of updates.
         """
 
-        for update in tqdm(range(self.updates)):
+        for _ in tqdm(range(self.updates)):
             # Sample with current policy
             samples = self.sample()
 
@@ -277,3 +294,52 @@ class Trainer:
         
         for worker in self.workers:
             worker.child.send(("close", None))
+
+
+    def plot(self):
+        """
+        This method plots the training metrics such as policy loss, value loss, entropy bonus, KL divergence, and clip fraction.
+        """
+
+        _, axs = plt.subplots(2, 3, figsize=(10, 5))
+        axs[0, 0].plot(self.policy_loss_list)
+        axs[0, 0].set_title("Policy Loss")
+        axs[0, 0].set_xlabel("Updates")
+        axs[0, 0].set_ylabel("Loss")
+
+        axs[0, 1].plot(self.value_loss_list)
+        axs[0, 1].set_title("Value Loss")
+        axs[0, 1].set_xlabel("Updates")
+        axs[0, 1].set_ylabel("Loss")
+
+        axs[0, 2].plot(self.entropy_bonus_list)
+        axs[0, 2].set_title("Entropy Bonus")
+        axs[0, 2].set_xlabel("Updates")
+        axs[0, 2].set_ylabel("Loss")
+
+        axs[1, 0].plot(self.kl_divergence_list)
+        axs[1, 0].set_title("KL Divergence")
+        axs[1, 0].set_xlabel("Updates")
+        axs[1, 0].set_ylabel("Loss")
+
+        axs[1, 1].plot(self.clip_fraction_list)
+        axs[1, 1].set_title("Clip Fraction")
+        axs[1, 1].set_xlabel("Updates")
+        axs[1, 1].set_ylabel("Fraction")
+
+        plt.tight_layout()
+        plt.savefig("results/training_metrics.png")
+
+        _, axs = plt.subplots(1, 2, figsize=(10, 5))
+        axs[0].plot(self.episode_length)
+        axs[0].set_title("Episode Length")
+        axs[0].set_xlabel("Episodes")
+        axs[0].set_ylabel("Length")
+
+        axs[1].plot(self.episode_reward)
+        axs[1].set_title("Episode Reward")
+        axs[1].set_xlabel("Episodes")
+        axs[1].set_ylabel("Reward")
+
+        plt.tight_layout()
+        plt.savefig("results/training_episodes.png")
