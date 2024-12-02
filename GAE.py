@@ -23,7 +23,7 @@ class GAE:
         self.gamma = gamma
         self.T = T
         self.N = N
-        self.action_size = action_size # for Humanoid
+        self.action_size = action_size
 
 
     def __call__(self, done: np.ndarray, rewards: np.ndarray, values: np.ndarray) -> np.ndarray:
@@ -50,27 +50,23 @@ class GAE:
         last_advantage = 0
 
         # V(s_{t+1})
-        # last_value = values[:, -1] # for CartPole
-        last_value = np.repeat(values[:, -1][:, np.newaxis], self.action_size, axis=1) # for Humanoid
+        last_value = np.repeat(values[:, -1][:, np.newaxis], self.action_size, axis=1)
 
         for t in reversed(range(self.T)):
             # Mask if episode completed after step t
-            # mask = 1.0 - done[:, t] # for CartPole
-            mask = 1.0 - np.repeat(done[:, t][:, np.newaxis], self.action_size, axis=1) # for Humanoid
+            mask = 1.0 - np.repeat(done[:, t][:, np.newaxis], self.action_size, axis=1)
             last_value = last_value * mask
             last_advantage = last_advantage * mask
 
             # delta_t (TD error at time t)
-            # delta = rewards[:, t] + self.gamma * last_value - values[:, t] # for CartPole
-            delta = np.repeat(rewards[:, t][:, np.newaxis], self.action_size, axis=1) + self.gamma * last_value - np.repeat(values[:, t][:, np.newaxis], self.action_size, axis=1) # for Humanoid
+            delta = np.repeat(rewards[:, t][:, np.newaxis], self.action_size, axis=1) + self.gamma * last_value - np.repeat(values[:, t][:, np.newaxis], self.action_size, axis=1)
 
             # A_t = delta_t + gamma * lambda * A_{t+1}
             last_advantage = delta + self.gamma * self.lambda_ * last_advantage
 
             advantages[:, t] = last_advantage
 
-            # last_value = values[:, t] # for CartPole
-            last_value = np.repeat(values[:, t][:, np.newaxis], self.action_size, axis=1) # for Humanoid
+            last_value = np.repeat(values[:, t][:, np.newaxis], self.action_size, axis=1)
 
         # A_t
         return advantages

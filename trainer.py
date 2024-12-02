@@ -40,10 +40,12 @@ class Trainer:
         The neural network model to be trained.
     device : str
         The device on which to perform the training.
+    str_env : str
+        The name of the environment to create.
     """
 
     def __init__(self, *, updates: int, epochs: int, N: int, T: int, batches: int, value_loss_coef: float, entropy_bonus_coef: float, clip_range: float,
-                 learning_rate: float, model: nn.Module, device: str):
+                 learning_rate: float, model: nn.Module, device: str, str_env: str):
         self.updates = updates
         self.epochs = epochs
         self.N = N
@@ -52,6 +54,7 @@ class Trainer:
         self.batch_size = self.N * self.T
         self.mini_batch_size = self.batch_size // self.batches
         assert (self.batch_size % self.batches == 0)
+        self.str_env = str_env
 
         self.value_loss_coef = value_loss_coef
         self.entropy_bonus_coef = entropy_bonus_coef
@@ -60,13 +63,11 @@ class Trainer:
         self.learning_rate = learning_rate
 
         # Create workers
-        self.workers = [Worker(47+i) for i in range(self.N)]
+        self.workers = [Worker(47+i, self.str_env) for i in range(self.N)]
 
         # Initialize tensors for observations
-        # self.action_size = 2 # for CartPole
-        self.action_size = 17 # for Humanoid
-        # self.state_size = 4 # for CartPole
-        self.state_size = 348 # for Humanoid
+        self.action_size = 1 if str_env == 'CartPole-v1' else 17
+        self.state_size = 4 if str_env == 'CartPole-v1' else 348
         self.obs = np.zeros((self.N, self.state_size), dtype=np.float32)
         for worker in self.workers:
             worker.child.send(("reset", None))
@@ -105,12 +106,10 @@ class Trainer:
         """
 
         rewards = np.zeros((self.N, self.T), dtype=np.float32)
-        # actions = np.zeros((self.N, self.T), dtype=np.int32) # for CartPole
-        actions = np.zeros((self.N, self.T, self.action_size), dtype=np.int32) # for Humanoid
+        actions = np.zeros((self.N, self.T), dtype=np.int32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.int32)
         done = np.zeros((self.N, self.T), dtype=bool)
         obs = np.zeros((self.N, self.T, self.state_size), dtype=np.float32)
-        # log_pis = np.zeros((self.N, self.T), dtype=np.float32) # for CartPole
-        log_pis = np.zeros((self.N, self.T, self.action_size), dtype=np.float32) # for Humanoid
+        log_pis = np.zeros((self.N, self.T), dtype=np.float32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
         values = np.zeros((self.N, self.T + 1), dtype=np.float32)
 
         # Reset workers; sometimes needed TODO
@@ -243,8 +242,7 @@ class Trainer:
         """
 
         # R_t returns sampled from pi_{theta_{OLD}}
-        # sampled_return = samples['values'] + samples['advantages'] # for CartPole
-        sampled_return = samples['values'] + samples['advantages'][:, 0] # for Humanoid
+        sampled_return = samples['values'] + samples['advantages'][:, 0]
 
 
         sampled_normalized_advantage = self._normalize(samples['advantages'])
@@ -358,8 +356,7 @@ class Trainer:
         This method logs a video of the trained model's performance in the environment.
         """
 
-        # env = gym.make("CartPole-v1", render_mode="rgb_array") # for CartPole
-        env = gym.make("Humanoid-v5", render_mode="rgb_array") # for Humanoid
+        env = gym.make(self.str_env, render_mode="rgb_array")
 
         video_file ="results/learned_dynamics.mp4"
         video_recorder = VideoRecorder(env, video_file, enabled=True)

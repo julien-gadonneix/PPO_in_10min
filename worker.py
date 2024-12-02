@@ -2,7 +2,7 @@ import multiprocessing
 import gymnasium as gym
 
 
-def worker_process(remote: multiprocessing.connection.Connection, seed: int):
+def worker_process(remote: multiprocessing.connection.Connection, seed: int, str_env: str):
     """
     Each worker process runs this method. It initializes a game environment and waits for instructions from the parent process through a multiprocessing connection.
     The worker process can handle commands such as "step", "reset", and "close" to interact with the game environment.
@@ -11,6 +11,10 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
     -----------
     remote : multiprocessing.connection.Connection
         The connection object used for communication between the parent and child processes.
+    seed : int
+        The seed value for the random number generator.
+    str_env : str
+        The name of the environment to create.
 
     Commands:
     ---------
@@ -20,8 +24,7 @@ def worker_process(remote: multiprocessing.connection.Connection, seed: int):
     """
 
     # Create environment
-    # env = gym.make("CartPole-v1", render_mode="rgb_array") # for CartPole
-    env = gym.make("Humanoid-v5", render_mode="rgb_array") # for Humanoid
+    env = gym.make(str_env, render_mode="rgb_array")
 
     # Wait for instructions from the connection and execute them
     while True:
@@ -43,7 +46,7 @@ class Worker:
     It utilizes multiprocessing to create a child process that communicates with the parent process through a pipe.
     """
 
-    def __init__(self, seed: int):
+    def __init__(self, seed: int, str_env: str):
         self.child, parent = multiprocessing.Pipe()
-        self.process = multiprocessing.Process(target=worker_process, args=(parent, seed))
+        self.process = multiprocessing.Process(target=worker_process, args=(parent, seed, str_env))
         self.process.start()
