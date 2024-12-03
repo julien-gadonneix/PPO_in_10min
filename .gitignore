@@ -162,5 +162,9 @@ cython_debug/
 #.idea/
 
 # Results folder
-results/
-checkpoint/
+results/*
+checkpoint/*
+nohup.out
+
+# Tests
+ppo.py

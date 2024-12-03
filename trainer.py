@@ -36,16 +36,20 @@ class Trainer:
         The clipping range for the PPO loss function.
     learning_rate : float
         The learning rate for the optimizer.
+    learning_rate_decay : float
+        The learning rate decay factor.
     model : nn.Module
         The neural network model to be trained.
     device : str
         The device on which to perform the training.
     str_env : str
         The name of the environment to create.
+    reward_scaling : float
+        The scaling factor for the rewards.
     """
 
     def __init__(self, *, updates: int, epochs: int, N: int, T: int, batches: int, value_loss_coef: float, entropy_bonus_coef: float, clip_range: float,
-                 learning_rate: float, model: nn.Module, device: str, str_env: str):
+                 learning_rate: float, learning_rate_decay: float, model: nn.Module, device: str, str_env: str, reward_scaling: float):
         self.updates = updates
         self.epochs = epochs
         self.N = N
@@ -55,12 +59,14 @@ class Trainer:
         self.mini_batch_size = self.batch_size // self.batches
         assert (self.batch_size % self.batches == 0)
         self.str_env = str_env
+        self.reward_scaling = reward_scaling
 
         self.value_loss_coef = value_loss_coef
         self.entropy_bonus_coef = entropy_bonus_coef
 
         self.clip_range = clip_range
         self.learning_rate = learning_rate
+        self.learning_rate_decay = learning_rate_decay
 
         # Create workers
         self.workers = [Worker(47+i, self.str_env) for i in range(self.N)]
@@ -76,9 +82,10 @@ class Trainer:
 
         self.model = model.to(device)
         self.device = device
-        self.optimizer = optim.Adam(self.model.parameters(), lr=2.5e-4)
-        gamma = 0.99
-        lambda_ = 0.95
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=self.learning_rate_decay)
+        gamma = 0.995
+        lambda_ = 0.98
         self.gae = GAE(self.N, self.T, gamma, lambda_, self.action_size)
         self.ppo_loss = ClippedPPOLoss()
         self.value_loss = ClippedValueFunctionLoss()
@@ -136,6 +143,7 @@ class Trainer:
                 for w, worker in enumerate(self.workers):
                     # Get results after executing the actions
                     self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
+                    rewards[w, t] *= self.reward_scaling
                     if done[w, t] and not done[w, t - 1]:
                         self.episode_length.append(t)
                     elif t == self.T - 1 and not done[w, t]:
@@ -193,12 +201,12 @@ class Trainer:
                     mini_batch[k] = v[mini_batch_indexes]
 
                 loss = self._calc_loss(mini_batch)
-                for pg in self.optimizer.param_groups:
-                    pg['lr'] = self.learning_rate
+                # for pg in self.optimizer.param_groups:
+                #     pg['lr'] = self.learning_rate
                 self.optimizer.zero_grad()
                 loss.backward()
                 # Clip gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimizer.step()
 
 
@@ -289,6 +297,7 @@ class Trainer:
 
             # Train the model
             self.train(samples)
+            self.scheduler.step()
 
 
     def destroy(self):
@@ -340,6 +349,7 @@ class Trainer:
         plt.xlabel("Episodes")
         plt.ylabel("Length")
 
+        plt.grid()
         plt.savefig("results/training_episodes.png")
 
     
