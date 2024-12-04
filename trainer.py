@@ -10,6 +10,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
+from lr_scheduler import MinimumExponentialLR
 
 class Trainer:
     """
@@ -72,8 +73,10 @@ class Trainer:
         self.workers = [Worker(47+i, self.str_env) for i in range(self.N)]
 
         # Initialize tensors for observations
-        self.action_size = 1 if str_env == 'CartPole-v1' else 17
-        self.state_size = 4 if str_env == 'CartPole-v1' else 348
+        action_sizes = {"CartPole-v1": 1, "Humanoid-v5": 17, "Hopper-v5": 3}
+        self.action_size = action_sizes[str_env]
+        state_sizes = {"CartPole-v1": 4, "Humanoid-v5": 376, "Hopper-v5": 11}
+        self.state_size = state_sizes[str_env]
         self.obs = np.zeros((self.N, self.state_size), dtype=np.float32)
         for worker in self.workers:
             worker.child.send(("reset", None))
@@ -83,7 +86,7 @@ class Trainer:
         self.model = model.to(device)
         self.device = device
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=self.learning_rate_decay)
+        self.scheduler = MinimumExponentialLR(self.optimizer, lr_decay=self.learning_rate_decay)
         gamma = 0.995
         lambda_ = 0.98
         self.gae = GAE(self.N, self.T, gamma, lambda_, self.action_size)
@@ -309,7 +312,7 @@ class Trainer:
             worker.child.send(("close", None))
 
 
-    def plot(self):
+    def plot(self, filename: str):
         """
         This method plots the training metrics such as policy loss, value loss, entropy bonus, KL divergence, and clip fraction.
         """
@@ -341,7 +344,7 @@ class Trainer:
         axs[1, 1].set_ylabel("Fraction")
 
         plt.tight_layout()
-        plt.savefig("results/training_metrics.png")
+        plt.savefig("results/" + filename + "_training_metrics.png")
 
         plt.figure(figsize=(10, 5))
         plt.plot(self.episode_length)
@@ -350,7 +353,7 @@ class Trainer:
         plt.ylabel("Length")
 
         plt.grid()
-        plt.savefig("results/training_episodes.png")
+        plt.savefig("results/" + filename + "_training_episodes.png")
 
     
     def log_video(self, filename: str):

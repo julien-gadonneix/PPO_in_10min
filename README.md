@@ -4,7 +4,7 @@
 
 ### Bioengineering applications at stake !
 
-[Acknowledgement: the code is fully inspired from `[this code](https://github.com/labmlai/annotated_deep_learning_paper_implementations/tree/master/labml_nn/rl/ppo)`]
+[Acknowledgement: the code is inspired from `[this code](https://github.com/labmlai/annotated_deep_learning_paper_implementations/tree/master/labml_nn/rl/ppo)`]
 
 No lengthy and boring introduction, I'm going straight to the point:
 
