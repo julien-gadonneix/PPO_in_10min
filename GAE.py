@@ -18,12 +18,11 @@ class GAE:
         The GAE parameter that controls the trade-off between bias and variance in the advantage estimates.
     """
 
-    def __init__(self, N: int, T: int, gamma: float, lambda_: float, action_size: int):
+    def __init__(self, N: int, T: int, gamma: float, lambda_: float):
         self.lambda_ = lambda_
         self.gamma = gamma
         self.T = T
         self.N = N
-        self.action_size = action_size
 
 
     def __call__(self, done: np.ndarray, rewards: np.ndarray, values: np.ndarray) -> np.ndarray:

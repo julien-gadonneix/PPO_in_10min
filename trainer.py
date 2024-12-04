@@ -12,6 +12,7 @@ import gymnasium as gym
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 from lr_scheduler import MinimumExponentialLR
 
+
 class Trainer:
     """
     The Trainer class manages the training process for a reinforcement learning model using PPO.
@@ -75,7 +76,7 @@ class Trainer:
         # Initialize tensors for observations
         action_sizes = {"CartPole-v1": 1, "Humanoid-v5": 17, "Hopper-v5": 3}
         self.action_size = action_sizes[str_env]
-        state_sizes = {"CartPole-v1": 4, "Humanoid-v5": 376, "Hopper-v5": 11}
+        state_sizes = {"CartPole-v1": 4, "Humanoid-v5": 348, "Hopper-v5": 11}
         self.state_size = state_sizes[str_env]
         self.obs = np.zeros((self.N, self.state_size), dtype=np.float32)
         for worker in self.workers:
@@ -89,7 +90,7 @@ class Trainer:
         self.scheduler = MinimumExponentialLR(self.optimizer, lr_decay=self.learning_rate_decay)
         gamma = 0.995
         lambda_ = 0.98
-        self.gae = GAE(self.N, self.T, gamma, lambda_, self.action_size)
+        self.gae = GAE(self.N, self.T, gamma, lambda_)
         self.ppo_loss = ClippedPPOLoss()
         self.value_loss = ClippedValueFunctionLoss()
 
@@ -121,7 +122,7 @@ class Trainer:
         log_pis = np.zeros((self.N, self.T), dtype=np.float32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
         values = np.zeros((self.N, self.T + 1), dtype=np.float32)
 
-        # Reset workers; sometimes needed TODO
+        # # Reset workers; sometimes needed TODO
         for worker in self.workers:
             worker.child.send(("reset", None))
         for i, worker in enumerate(self.workers):
@@ -167,7 +168,7 @@ class Trainer:
             'advantages': advantages
         }
 
-        # Camples are currently in [N, T] table, we should flatten it for training
+        # Flatten the samples
         samples_flat = {}
         for k, v in samples.items():
             v = v.reshape(v.shape[0] * v.shape[1], *v.shape[2:])

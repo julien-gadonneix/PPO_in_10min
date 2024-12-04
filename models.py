@@ -17,7 +17,7 @@ class NN_CartPole(nn.Module):
         self.lin4 = nn.Linear(in_features=256, out_features=512)
 
         # A fully connected layer to get logits for pi
-        self.pi_logits = nn.Linear(in_features=512, out_features=1)
+        self.pi_logits = nn.Linear(in_features=512, out_features=2)
 
         # A fully connected layer to get value function
         self.value = nn.Linear(in_features=512, out_features=1)
