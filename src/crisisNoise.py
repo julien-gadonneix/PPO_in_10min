@@ -11,9 +11,9 @@ class crisisNoise:
         self.reset()
 
     def noise(self) -> np.ndarray:
-        x = self.intensity_mu + self.intensity_sigma * np.random.randn(self.action_size) * np.exp(-self.t / self.duration)
+        x = self.intensity_mu + self.intensity_sigma * np.random.randn(self.action_size)
         self.t += 1
-        return x
+        return x * np.random.choice([-1, 1], size=self.action_size, p=[0.5, 0.5])
 
     def reset(self):
         self.t = 0

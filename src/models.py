@@ -13,14 +13,13 @@ class NN_CartPole(nn.Module):
 
         self.lin1 = nn.Linear(in_features=4, out_features=64)
         self.lin2 = nn.Linear(in_features=64, out_features=128)
-        self.lin3 = nn.Linear(in_features=128, out_features=256)
-        self.lin4 = nn.Linear(in_features=256, out_features=512)
+        self.lin3 = nn.Linear(in_features=128, out_features=64)
 
         # A fully connected layer to get logits for pi
-        self.pi_logits = nn.Linear(in_features=512, out_features=2)
+        self.pi_logits = nn.Linear(in_features=64, out_features=2)
 
         # A fully connected layer to get value function
-        self.value = nn.Linear(in_features=512, out_features=1)
+        self.value = nn.Linear(in_features=64, out_features=1)
 
         self.activation = nn.ReLU()
         
@@ -28,7 +27,6 @@ class NN_CartPole(nn.Module):
         h = self.activation(self.lin1(obs))
         h = self.activation(self.lin2(h))
         h = self.activation(self.lin3(h))
-        h = self.activation(self.lin4(h))
 
         pi = Categorical(logits=self.pi_logits(h))
         value = self.value(h).reshape(-1)
@@ -84,14 +82,13 @@ class NN_Hopper(nn.Module):
         self.lin2 = nn.Linear(in_features=1024, out_features=512)
         self.lin3 = nn.Linear(in_features=512, out_features=256)
         self.lin4 = nn.Linear(in_features=256, out_features=512)
-        self.lin5 = nn.Linear(in_features=512, out_features=256)
 
         # Fully connected layers to get logits for pi
-        self.pi_loc = nn.Linear(in_features=256, out_features=3)
+        self.pi_loc = nn.Linear(in_features=512, out_features=3)
         self.pi_scale = nn.Parameter(torch.zeros(3))
 
         # A fully connected layer to get value function
-        self.value = nn.Linear(in_features=256, out_features=1)
+        self.value = nn.Linear(in_features=512, out_features=1)
 
         self.activation = nn.ReLU()
 
@@ -100,7 +97,6 @@ class NN_Hopper(nn.Module):
         h = self.activation(self.lin2(h))
         h = self.activation(self.lin3(h))
         h = self.activation(self.lin4(h))
-        h = self.activation(self.lin5(h))
 
         mu = self.pi_loc(h)
         sigma = torch.exp(self.pi_scale).expand_as(mu)

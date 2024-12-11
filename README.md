@@ -4,22 +4,25 @@
 
 ### Bioengineering applications at stake !
 
-[Acknowledgement: the code is inspired from `[this code](https://github.com/labmlai/annotated_deep_learning_paper_implementations/tree/master/labml_nn/rl/ppo)`]
+[Acknowledgement: the code is inspired from [this code](https://github.com/labmlai/annotated_deep_learning_paper_implementations/tree/master/labml_nn/rl/ppo)]
 
-No lengthy and boring introduction, I'm going straight to the point:
+I'm going straight to the point:
 
-My goal: Give you the keys to fully understand, reexplain and build a state-of-the-art reinforcement learning (RL) method: Proximal Policy Optimization (PPO);
+My goal: Provide you with the keys to fully understand, explain, and implement a state-of-the-art reinforcement learning (RL) method: Proximal Policy Optimization (PPO);
 
-My time limit: Only 10 minutes;
+My time limit: 10 minutes;
 
-My tools: Python coding and Mathematical theory explanation;
+My tools: Python coding using PyTorch and Mathematical theory explanations;
 
-Your takeaway: Improved knowledge on state-of-the-art RL techniques and world-wide recognised skills on machine and deep learning applied to PPO;
+Your takeaway: Enhanced understanding of RL techniques and globally recognised skills in artificial intelligence, specifically applied to PPO;
 
-Bonus: An application to bioengineering (let's enjoy a bit what we did…);
+Bonus: A bioengineering application (let’s appreciate what we’ve accomplished!);
 
-Results:`{results: "Success"}`
+### Key Files
 
-Get ready to be a better person !
+- **`src/`**: Contains all the application code.
+- **`checkpoint/`**: Contains the pretrained models' weights.
+- **`results/`**: Contains the figures and videos.
 
-Link to the Medium post:`TODO`
+- **`ppo.ipynb`**: Run the PPO algoritmh in a step-by-step customization.
+- **`ppo_noised.ipynb`**: Run the PPO algoritmh in a step-by-step customization.

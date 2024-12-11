@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch
 from GAE import GAE
+from crisisNoise import crisisNoise
 from losses import ClippedPPOLoss, ClippedValueFunctionLoss
 from worker import Worker
 from tqdm import tqdm
@@ -177,6 +178,81 @@ class Trainer:
         return samples_flat
     
 
+    def sample_with_noise(self) -> Dict[str, torch.Tensor]:
+        """
+        This method collects data from the environment using the current policy. It interacts with the worker processes to gather observations, actions, rewards,
+        and other relevant information over a specified number of time steps. The collected data is then used to compute advantages using GAE.
+
+        Returns:
+        --------
+        samples_flat : Dict[str, torch.Tensor]
+            A dictionary containing the flattened samples of observations, actions, values, log probabilities, and advantages, ready for training.
+        """
+
+        rewards = np.zeros((self.N, self.T), dtype=np.float32)
+        actions = np.zeros((self.N, self.T), dtype=np.int32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
+        done = np.zeros((self.N, self.T), dtype=bool)
+        obs = np.zeros((self.N, self.T, self.state_size), dtype=np.float32)
+        log_pis = np.zeros((self.N, self.T), dtype=np.float32) if self.str_env == 'CartPole-v1' else np.zeros((self.N, self.T, self.action_size), dtype=np.float32)
+        values = np.zeros((self.N, self.T + 1), dtype=np.float32)
+
+        noise = crisisNoise(0.5, 0.5, self.action_size)
+
+        # # Reset workers; sometimes needed TODO
+        for worker in self.workers:
+            worker.child.send(("reset", None))
+        for i, worker in enumerate(self.workers):
+            self.obs[i] = worker.child.recv()[0]
+
+        with torch.no_grad():
+            # Sample T from each worker
+            for t in range(self.T):
+                # self.obs keeps track of the last observation from each worker, which is the input for the model to sample the next action
+                obs[:, t] = self.obs
+                # Sample actions from pi_{theta_{OLD}} for each worker; this returns arrays of size N
+                pi, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
+                values[:, t] = v.cpu().numpy()
+                a = pi.sample()
+                actions[:, t] = a.cpu().numpy() + noise.noise()
+                log_pis[:, t] = pi.log_prob(a).cpu().numpy()
+
+                # Run sampled actions on each worker
+                for w, worker in enumerate(self.workers):
+                    worker.child.send(("step", actions[w, t]))
+
+                for w, worker in enumerate(self.workers):
+                    # Get results after executing the actions
+                    self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
+                    rewards[w, t] *= self.reward_scaling
+                    if done[w, t] and not done[w, t - 1]:
+                        self.episode_length.append(t)
+                    elif t == self.T - 1 and not done[w, t]:
+                        self.episode_length.append(self.T)
+
+            # Get value of after the final step
+            _, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
+            values[:, self.T] = v.cpu().numpy()
+
+        # Calculate advantages
+        advantages = self.gae(done, rewards, values)
+
+        samples = {
+            'obs': obs,
+            'actions': actions,
+            'values': values[:, :-1],
+            'log_pis': log_pis,
+            'advantages': advantages
+        }
+
+        # Flatten the samples
+        samples_flat = {}
+        for k, v in samples.items():
+            v = v.reshape(v.shape[0] * v.shape[1], *v.shape[2:])
+            samples_flat[k] = torch.tensor(v, device=self.device)
+
+        return samples_flat
+    
+
     def train(self, samples: Dict[str, torch.Tensor]):
         """
         This method trains the model using the provided samples. It performs multiple epochs of training, shuffling the data for each epoch and dividing it into
@@ -304,6 +380,21 @@ class Trainer:
             self.scheduler.step()
 
 
+    def run_training_loop_with_noise(self):
+        """
+        This method runs the training loop for the model. It samples data using the current policy and trains the model using the sampled data.
+        The training loop continues for a specified number of updates.
+        """
+
+        for _ in tqdm(range(self.updates)):
+            # Sample with current policy
+            samples = self.sample_with_noise()
+
+            # Train the model
+            self.train(samples)
+            self.scheduler.step()
+
+
     def destroy(self):
         """
         This method stops all the worker processes. It sends a "close" command to each worker to terminate their execution.
@@ -316,6 +407,11 @@ class Trainer:
     def plot(self, filename: str):
         """
         This method plots the training metrics such as policy loss, value loss, entropy bonus, KL divergence, and clip fraction.
+
+        Parameters:
+        -----------
+        filename : str
+            The name of the file to save the training metrics plot.
         """
 
         _, axs = plt.subplots(2, 3, figsize=(10, 5))
@@ -360,6 +456,11 @@ class Trainer:
     def log_video(self, filename: str):
         """
         This method logs a video of the trained model's performance in the environment.
+
+        Parameters:
+        -----------
+        filename : str
+            The name of the file to save the video.
         """
 
         env = gym.make(self.str_env, render_mode="rgb_array")
@@ -381,6 +482,56 @@ class Trainer:
             # Step the environment
             obs, _, terminated, truncated, _ = env.step(action.cpu().numpy())
             done = terminated or truncated
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
+
+        print(f"Video recorded with duration {duration} frames.")
+        video_recorder.capture_frame()
+        video_recorder.close()
+        video_recorder.enabled = False
+        env.close()
+
+
+    def log_video_with_noise(self, filename: str, use_model: bool):
+        """
+        This method logs a video of the trained model's performance in the environment with noise.
+
+        Parameters:
+        -----------
+        filename : str
+            The name of the file to save the video.
+        use_model : bool
+            A flag to indicate whether to use the model's actions with the noise or just the noise.
+        """
+
+        env = gym.make(self.str_env, render_mode="rgb_array")
+        noise = crisisNoise(0.5, 0.5, self.action_size)
+
+        video_file ="results/" + filename + "_noised.mp4"
+        video_recorder = VideoRecorder(env, video_file, enabled=True)
+
+        obs, _ = env.reset()
+        duration = 0
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
+        condition = True
+        while condition:
+            duration += 1
+            video_recorder.capture_frame()
+            # Sample an action
+            with torch.no_grad():
+                noised_action = noise.noise()
+                if use_model:
+                    pi, _ = self.model(obs)
+                    action = pi.sample().cpu().numpy()
+                    action += noised_action
+                else:
+                    action = noised_action
+            # Step the environment
+            obs, _, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            if use_model:
+                condition = not done
+            else:
+                condition = duration < 300
             obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
 
         print(f"Video recorded with duration {duration} frames.")
