@@ -102,13 +102,19 @@ class Trainer:
         self.kl_divergence_list = []
         self.clip_fraction_list = []
 
-        self.episode_length = []
+        self.episode_length = np.zeros((self.N, self.updates), dtype=np.int32)
+        self.total_cumulative_rewards = np.zeros((self.N, self.updates), dtype=np.float32)
 
 
-    def sample(self) -> Dict[str, torch.Tensor]:
+    def sample(self, update: int) -> Dict[str, torch.Tensor]:
         """
         This method collects data from the environment using the current policy. It interacts with the worker processes to gather observations, actions, rewards,
         and other relevant information over a specified number of time steps. The collected data is then used to compute advantages using GAE.
+
+        Parameters:
+        -----------
+        update : int
+            The current update number.
 
         Returns:
         --------
@@ -150,9 +156,11 @@ class Trainer:
                     self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
                     rewards[w, t] *= self.reward_scaling
                     if done[w, t] and not done[w, t - 1]:
-                        self.episode_length.append(t)
+                        self.episode_length[w, update] = t
+                        self.total_cumulative_rewards[w, update] = np.sum(rewards[w, :t])
                     elif t == self.T - 1 and not done[w, t]:
-                        self.episode_length.append(self.T)
+                        self.episode_length[w, update] = self.T
+                        self.total_cumulative_rewards[w, update] = np.sum(rewards[w])
 
             # Get value of after the final step
             _, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
@@ -178,10 +186,15 @@ class Trainer:
         return samples_flat
     
 
-    def sample_with_noise(self) -> Dict[str, torch.Tensor]:
+    def sample_with_noise(self, update: int) -> Dict[str, torch.Tensor]:
         """
         This method collects data from the environment using the current policy. It interacts with the worker processes to gather observations, actions, rewards,
         and other relevant information over a specified number of time steps. The collected data is then used to compute advantages using GAE.
+        
+        Parameters:
+        -----------
+        update : int
+            The current update number.
 
         Returns:
         --------
@@ -225,9 +238,11 @@ class Trainer:
                     self.obs[w], rewards[w, t], done[w, t], _, _ = worker.child.recv()
                     rewards[w, t] *= self.reward_scaling
                     if done[w, t] and not done[w, t - 1]:
-                        self.episode_length.append(t)
+                        self.episode_length[w, update] = t
+                        self.total_cumulative_rewards[w, update] = np.sum(rewards[w, :t])
                     elif t == self.T - 1 and not done[w, t]:
-                        self.episode_length.append(self.T)
+                        self.episode_length[w, update] = self.T
+                        self.total_cumulative_rewards[w, update] = np.sum(rewards[w])
 
             # Get value of after the final step
             _, v = self.model(torch.tensor(self.obs, dtype=torch.float32, device=self.device))
@@ -371,9 +386,9 @@ class Trainer:
         The training loop continues for a specified number of updates.
         """
 
-        for _ in tqdm(range(self.updates)):
+        for update in tqdm(range(self.updates)):
             # Sample with current policy
-            samples = self.sample()
+            samples = self.sample(update)
 
             # Train the model
             self.train(samples)
@@ -386,9 +401,9 @@ class Trainer:
         The training loop continues for a specified number of updates.
         """
 
-        for _ in tqdm(range(self.updates)):
+        for update in tqdm(range(self.updates)):
             # Sample with current policy
-            samples = self.sample_with_noise()
+            samples = self.sample_with_noise(update)
 
             # Train the model
             self.train(samples)
@@ -414,43 +429,40 @@ class Trainer:
             The name of the file to save the training metrics plot.
         """
 
-        _, axs = plt.subplots(2, 3, figsize=(10, 5))
-        axs[0, 0].plot(self.policy_loss_list)
-        axs[0, 0].set_title("Policy Loss")
-        axs[0, 0].set_xlabel("Updates")
-        axs[0, 0].set_ylabel("Loss")
+        names = ["Episode Length", "Scaled Total Return"]
+        vals = [self.episode_length, self.total_cumulative_rewards]
+        for i in range(2):
+            plt.figure(figsize=(15, 5))
+            mu = vals[i].mean(axis=0)
+            plt.plot(mu, label="Mean " + names[i] + " across workers")
+            sigma = vals[i].std(axis=0)
+            plt.axhline(y=self.T, color='r', linestyle='--', label="T")
+            plt.fill_between(np.arange(self.updates), mu - sigma, np.minimum(self.T, mu + sigma), alpha=0.3, label="Standard deviation of the " + vals[i] + " across workers")
+            plt.legend()
+            plt.xlabel("Updates")
+            plt.ylabel(names[i])
+            plt.xlim(0, self.updates)
+            plt.grid()
+            plt.savefig("results/" + filename + "_training_" + names[i].replace(" ", "_") + ".png")
 
-        axs[0, 1].plot(self.value_loss_list)
-        axs[0, 1].set_title("Value Loss")
-        axs[0, 1].set_xlabel("Updates")
-        axs[0, 1].set_ylabel("Loss")
-
-        axs[0, 2].plot(self.entropy_bonus_list)
-        axs[0, 2].set_title("Entropy Bonus")
-        axs[0, 2].set_xlabel("Updates")
-        axs[0, 2].set_ylabel("Loss")
-
-        axs[1, 0].plot(self.kl_divergence_list)
-        axs[1, 0].set_title("KL Divergence")
-        axs[1, 0].set_xlabel("Updates")
-        axs[1, 0].set_ylabel("Loss")
-
-        axs[1, 1].plot(self.clip_fraction_list)
-        axs[1, 1].set_title("Clip Fraction")
-        axs[1, 1].set_xlabel("Updates")
-        axs[1, 1].set_ylabel("Fraction")
-
-        plt.tight_layout()
-        plt.savefig("results/" + filename + "_training_metrics.png")
-
-        plt.figure(figsize=(10, 5))
-        plt.plot(self.episode_length)
-        plt.title("Episode Length")
-        plt.xlabel("Episodes")
-        plt.ylabel("Length")
-
-        plt.grid()
-        plt.savefig("results/" + filename + "_training_episodes.png")
+        names = ["Policy Loss", "Value Loss", "Entropy", "Clip Fraction", "KL Divergence"]
+        vals = [self.policy_loss_list, self.value_loss_list, self.entropy_bonus_list, self.clip_fraction_list, self.kl_divergence_list]
+        for i in range(5):
+            plt.figure(figsize=(15, 5))
+            plt.plot(vals[i], label=names[i])
+            max_val = np.max(vals[i])
+            min_val = np.min(vals[i])
+            for i in range(self.updates):
+                if i == self.updates-1:
+                    plt.vlines(i*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', label="Updates", alpha=0.5)
+                else:
+                    plt.vlines(i*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', alpha=0.5*(1-np.exp(-i/100)))
+            plt.xlabel("Updates x Epochs x Batches")
+            plt.xlim(0, self.updates*self.epochs*self.batches)
+            plt.ylabel(names[i])
+            plt.grid()
+            plt.legend()
+            plt.savefig("results/" + filename + "_training_" + names[i].replace(" ", "_") + ".png")
 
     
     def log_video(self, filename: str):
