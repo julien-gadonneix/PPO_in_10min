@@ -437,7 +437,7 @@ class Trainer:
             plt.plot(mu, label="Mean " + names[i] + " across workers")
             sigma = vals[i].std(axis=0)
             plt.axhline(y=self.T, color='r', linestyle='--', label="T")
-            plt.fill_between(np.arange(self.updates), mu - sigma, np.minimum(self.T, mu + sigma), alpha=0.3, label="Standard deviation of the " + vals[i] + " across workers")
+            plt.fill_between(np.arange(self.updates), mu - sigma, np.minimum(self.T, mu + sigma), alpha=0.3, label="Standard deviation of the " + names[i] + " across workers")
             plt.legend()
             plt.xlabel("Updates")
             plt.ylabel(names[i])
@@ -452,11 +452,11 @@ class Trainer:
             plt.plot(vals[i], label=names[i])
             max_val = np.max(vals[i])
             min_val = np.min(vals[i])
-            for i in range(self.updates):
-                if i == self.updates-1:
-                    plt.vlines(i*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', label="Updates", alpha=0.5)
+            for j in range(self.updates):
+                if j == self.updates-1:
+                    plt.vlines(j*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', label="Updates", alpha=0.5)
                 else:
-                    plt.vlines(i*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', alpha=0.5*(1-np.exp(-i/100)))
+                    plt.vlines(j*self.epochs*self.batches, min_val, max_val, color='k', linestyle='--', alpha=0.5*(1-np.exp(-j/100)))
             plt.xlabel("Updates x Epochs x Batches")
             plt.xlim(0, self.updates*self.epochs*self.batches)
             plt.ylabel(names[i])
