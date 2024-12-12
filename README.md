@@ -19,8 +19,8 @@ Bonus: A bioengineering application;
 ### Key Files
 
 - **`src/`**: Contains all the application code.
-- **`checkpoint/`**: Contains the pretrained models' weights.
-- **`results/`**: Contains the figures and videos.
+- **`checkpoint/`**: For storing the pretrained models' weights.
+- **`results/`**: For storing the figures and videos.
 
 - **`ppo.ipynb`**: Run the PPO algoritmh in a step-by-step customization.
 - **`ppo_noised.ipynb`**: Run the PPO algoritmh in a step-by-step customization.
