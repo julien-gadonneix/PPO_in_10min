@@ -14,6 +14,14 @@ Your takeaway: Enhanced understanding of RL techniques and recognised skills in 
 
 Bonus: A bioengineering application;
 
+### Some results
+
+PPO on Hopper-v5
+![PPO on Hopper-v5](gif/ppo.gif)
+
+Movement disorders and solution with PPO on Hopper-v5
+![Movement disorders and solution with PPO on Hopper-v5](gif/ppo_mvt_disorder.gif)
+
 ### Key Files
 
 - **`src/`**: Contains all the application code.
