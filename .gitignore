@@ -168,3 +168,6 @@ nohup.out
 
 # Tests
 ppo.py
+
+# Ignore mac system files
+.DS_Store
